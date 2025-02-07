@@ -1,5 +1,5 @@
-// lib/types.ts
 export interface WalletInfo {
+  id: any;
   name: string;
   publicKey: string;
   balance: number;
@@ -8,19 +8,24 @@ export interface WalletInfo {
   tokenUrl?: string;
 }
 
-export interface WalletGenerationProgress {
-  current: number;
-  total: number;
-  status: string;
+export interface TokenResponse {
+  success: boolean;
+  tokenUrl?: string;
+  error?: string;
+}
+
+export interface StoreResponse {
+  success: boolean;
 }
 
 export interface TokenData {
   tokenName: string;
   tokenSymbol: string;
-  tokenDesc?: string;
-  imageUrl?: string;
-  tokenUrl?: string;
+  tokenDescription: string;
+  imageUrl: string | null;
   twitterLink?: string;
   websiteLink?: string;
   telegramLink?: string;
+  wallets: WalletInfo[];
+  fundingWallet: string;
 }

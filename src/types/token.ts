@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 
 export interface WalletInfo {
+  id: any;
   name: string;
   publicKey: string;
   balance: number;
@@ -28,4 +29,14 @@ export interface TokenData {
   createdAt?: Date;
   launchInterval: number;
   fundingWallet: string;
+}
+
+export interface TokenResponse {
+  success: boolean;
+  tokenUrl?: string;
+  error?: string;
+}
+
+export interface StoreResponse {
+  success: boolean;
 }

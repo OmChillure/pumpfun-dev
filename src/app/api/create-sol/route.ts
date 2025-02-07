@@ -5,20 +5,20 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  SystemProgram,
   Transaction,
 } from "@solana/web3.js";
 import { PumpFunSDK } from "pumpdotfun-sdk";
 import { AnchorProvider } from "@coral-xyz/anchor";
 import { getFile, upload } from "@/app/actions";
 import { printSPLBalance } from "@/utils/util";
+import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, createTransferInstruction } from "@solana/spl-token";
+import clientPromise from '@/utils/db';
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
-
-
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000; // 2 seconds
 const TRANSACTION_TIMEOUT = 120000; // 2 minutes
-const MINIMUM_BALANCE_REQUIRED = 0.01 * LAMPORTS_PER_SOL;
 const SLIPPAGE_BASIS_POINTS = BigInt(100);
 
 async function getBlockhashWithRetry(
@@ -41,21 +41,67 @@ async function getBlockhashWithRetry(
   throw new Error("Failed to get blockhash after retries");
 }
 
-async function waitForBalance(
+//function to transfer token
+export async function transferTokensToConnectedWallet(
   connection: Connection,
-  publicKey: PublicKey,
-  expectedBalance: number,
-  maxAttempts = 10
-): Promise<boolean> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const balance = await connection.getBalance(publicKey);
-    if (balance >= expectedBalance) {
-      return true;
+  mint: PublicKey,
+  fromWallet: Keypair,
+  toWalletPubkey: PublicKey
+) {
+  try {
+    const fromTokenAccount = await getAssociatedTokenAddress(
+      mint,
+      fromWallet.publicKey
+    );
+
+    const toTokenAccount = await getAssociatedTokenAddress(
+      mint,
+      toWalletPubkey
+    );
+
+    const transaction = new Transaction();
+    const toTokenAccountInfo = await connection.getAccountInfo(toTokenAccount);
+    if (!toTokenAccountInfo) {
+      transaction.add(
+        createAssociatedTokenAccountInstruction(
+          fromWallet.publicKey, 
+          toTokenAccount,  
+          toWalletPubkey, 
+          mint              
+        )
+      );
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    const fromBalance = await connection.getTokenAccountBalance(fromTokenAccount);
+    if (!fromBalance?.value?.amount) {
+      throw new Error("Could not get token balance");
+    }
+
+    transaction.add(
+      createTransferInstruction(
+        fromTokenAccount,        
+        toTokenAccount,          
+        fromWallet.publicKey,     
+        BigInt(fromBalance.value.amount)
+      )
+    );
+
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
+    transaction.feePayer = fromWallet.publicKey;
+
+    transaction.sign(fromWallet);
+    const signature = await connection.sendRawTransaction(transaction.serialize());
+    await connection.confirmTransaction(signature);
+
+    return signature;
+  } catch (error) {
+    console.error("Error transferring tokens:", error);
+    throw error;
   }
-  return false;
 }
+
 
 export async function POST(req: NextRequest) {
   let filePath: string | null = null;
@@ -74,7 +120,19 @@ export async function POST(req: NextRequest) {
     if (!walletDataRaw) throw new Error("No wallet data provided");
 
     const walletData = JSON.parse(walletDataRaw as string);
-    console.log("Wallet data parsed successfully");
+    
+    //mongo client
+    const mongoClient = await clientPromise;
+    const db = mongoClient.db('tokenDb');
+    const keysCollection = db.collection('keys');
+
+    const storedKeys = await keysCollection.findOne({ walletId: walletData.id });
+    if (!storedKeys) {
+      throw new Error("Wallet keys not found");
+    }
+    
+    const keypair = Keypair.fromSecretKey(new Uint8Array(storedKeys.keypair.buffer));
+    const mint = Keypair.fromSecretKey(new Uint8Array(storedKeys.mint.buffer));
 
     let retryCount = 0;
     while (!connection && retryCount < MAX_RETRIES) {
@@ -92,9 +150,7 @@ export async function POST(req: NextRequest) {
     }
     if (!connection) throw new Error("Failed to establish connection");
 
-    // Create keypairs from wallet data
-    const keypair = Keypair.fromSecretKey(Uint8Array.from(walletData.keypair));
-    const mint = Keypair.fromSecretKey(Uint8Array.from(walletData.mint));
+
     console.log("Created Keypairs:");
     console.log("Main Keypair:", {
       publicKey: keypair.publicKey.toString(),
@@ -102,26 +158,11 @@ export async function POST(req: NextRequest) {
     console.log("Mint Keypair:", {
       publicKey: mint.publicKey.toString(),
     });
-
+    
     console.log("Keypairs created");
 
-    //balance
-    console.log("Checking initial balance...");
-    const hasBalance = await waitForBalance(
-      connection,
-      keypair.publicKey,
-      MINIMUM_BALANCE_REQUIRED
-    );
-    if (!hasBalance) {
-      throw new Error(
-        `Insufficient balance after waiting. Required: ${
-          MINIMUM_BALANCE_REQUIRED / LAMPORTS_PER_SOL
-        } SOL`
-      );
-    }
 
-    const balance = await connection.getBalance(keypair.publicKey);
-    console.log("Confirmed wallet balance:", balance / LAMPORTS_PER_SOL, "SOL");
+    console.log("Checking initial balance...");
 
     // Create wallet instance for provider
     const walletInstance = {
@@ -148,7 +189,6 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    // Initialize provider and SDK
     const provider = new AnchorProvider(connection, walletInstance as any, {
       commitment: "finalized",
       preflightCommitment: "finalized",
@@ -156,7 +196,6 @@ export async function POST(req: NextRequest) {
     const sdk = new PumpFunSDK(provider);
     console.log("SDK initialized");
 
-    // Prepare token metadata
     const ipfsData = await getFile(
       uploadResult.hash,
       "application/octet-stream"
@@ -178,8 +217,7 @@ export async function POST(req: NextRequest) {
         },
       },
     };
-    
-
+  
     console.log("Token metadata prepared");
 
     // Create token with retry logic
@@ -191,7 +229,12 @@ export async function POST(req: NextRequest) {
           keypair,
           mint,
           tokenMetadata,
-          BigInt(0.0001 * LAMPORTS_PER_SOL),
+          BigInt(3.1  * LAMPORTS_PER_SOL),
+          SLIPPAGE_BASIS_POINTS,
+          {
+            unitLimit: 250000,
+            unitPrice: 250000,
+          }
         );
 
         if (createResults.success) {
@@ -210,51 +253,8 @@ export async function POST(req: NextRequest) {
     }
 
     const tokenUrl = `https://pump.fun/${mint.publicKey.toBase58()}`;
-    console.log("Success:", `https://pump.fun/${mint.publicKey.toBase58()}`);
-    printSPLBalance(sdk.connection, mint.publicKey, keypair.publicKey);
-    
-
-    // Execute additional buy transaction
-    console.log("Executing additional buy transaction...");
-    if (!process.env.NEXT_PUBLIC_BUY_BACK_PRIVATE_KEY)
-      throw new Error("Buyer private key not found");
-
-    const buyerKeypair = Keypair.fromSecretKey(Uint8Array.from(bs58.decode(process.env.NEXT_PUBLIC_BUY_BACK_PRIVATE_KEY)));
-    console.log("Buyer public key:", buyerKeypair.publicKey.toString());
-
-    let buyResults;
-    for (let i = 0; i < MAX_RETRIES; i++) {
-      try {
-        buyResults = await sdk.buy(
-          buyerKeypair,
-          mint.publicKey,
-          BigInt(3.1 * LAMPORTS_PER_SOL),
-          SLIPPAGE_BASIS_POINTS
-        );
-
-        if (buyResults.success) {
-          console.log(
-            "Additional buy transaction successful on attempt",
-            i + 1
-          );
-          break;
-        }
-      } catch (error) {
-        console.error(`Buy attempt ${i + 1} failed:`, error);
-        if (i === MAX_RETRIES - 1) throw error;
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-      }
-    }
-
-    if (!buyResults?.success) {
-      throw new Error("Additional buy transaction failed after all retries");
-    }
+    console.log("Success:", tokenUrl);
     await printSPLBalance(sdk.connection, mint.publicKey, keypair.publicKey);
-    await printSPLBalance(
-      sdk.connection,
-      mint.publicKey,
-      buyerKeypair.publicKey
-    );
 
     return NextResponse.json({ success: true, tokenUrl });
   } catch (error) {
