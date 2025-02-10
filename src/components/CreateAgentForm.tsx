@@ -20,7 +20,7 @@ const BASE_AMOUNT = 3.125 * LAMPORTS_PER_SOL;
 const AGENT_WALLET = process.env.NEXT_PUBLIC_AGENT_WALLET
 
 const WalletGenerator = () => {
-  const { publicKey, signTransaction, connected } = useWallet();
+  const [imageUrl, setImageUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [error, setError] = useState("");
@@ -49,15 +49,10 @@ const WalletGenerator = () => {
 
     return result.data;
   };
- 
+
   //main submit function
   const handleSubmitSOL = async (e: FormEvent) => {
     e.preventDefault();
-    const file = fileInputRef.current?.files?.[0];
-    if (!file) {
-      toast.error("Please select a token image");
-      return;
-    }
 
     if (!tokenName || !tokenSymbol) {
       toast.error("Please enter token name and symbol");
@@ -69,7 +64,7 @@ const WalletGenerator = () => {
 
     try {
       const walletInfo = await generateWallet();
-      
+
       const connection = new Connection(RPC_URL, {
         commitment: "finalized",
         confirmTransactionInitialTimeout: 120000,
@@ -77,10 +72,10 @@ const WalletGenerator = () => {
 
       if (!AGENT_WALLET) throw new Error("Agent wallet not configured");
       const agentKeypair = Keypair.fromSecretKey(Uint8Array.from(bs58.decode(AGENT_WALLET)));
-      
+
       const agentBalance = await connection.getBalance(agentKeypair.publicKey);
       const AMOUNT_PER_WALLET = BASE_AMOUNT;
-      
+
       if (agentBalance < AMOUNT_PER_WALLET) {
         throw new Error(`Insufficient balance in agent wallet. Required: ${AMOUNT_PER_WALLET / LAMPORTS_PER_SOL} SOL`);
       }
@@ -99,11 +94,11 @@ const WalletGenerator = () => {
       transaction.feePayer = agentKeypair.publicKey;
 
       transaction.sign(agentKeypair);
-      
+
       const signature = await connection.sendRawTransaction(transaction.serialize());
       await connection.confirmTransaction(signature);
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("imageUrl", imageUrl);
       formData.append("tokenName", tokenName);
       formData.append("tokenSymbol", tokenSymbol);
       formData.append("tokenDescription", tokenDesc);
@@ -131,6 +126,7 @@ const WalletGenerator = () => {
         keypair: walletInfo.keypair,
         mint: walletInfo.mint,
         tokenUrl: tokenResult.tokenUrl,
+        image: imageUrl,
       };
 
       setWallet(newWallet);
@@ -152,7 +148,7 @@ const WalletGenerator = () => {
       tokenName,
       tokenSymbol,
       tokenDescription: tokenDesc,
-      imageUrl: imagePreview,
+      imageUrl,
       twitterLink,
       websiteLink,
       telegramLink,
@@ -172,184 +168,161 @@ const WalletGenerator = () => {
     }
   };
 
-  const handleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    console.log(file);
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
-
-return (
-  <div className="w-[50rem] mx-auto space-y-6 font-lexend text-gray-800 p-8 rounded-lg">
-    <div>
-      <h1 className="text-4xl font-bold text-center mb-2">Launch Token</h1>
-      <p className="text-xl text-gray-600 text-center">Create your token with a dedicated wallet.</p>
-    </div>
-    <div>
-      <form className="space-y-6">
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="tokenImage" className="text-[13px] font-lexend font-medium mb-2 sm:block hidden">Token Image</label>
-            <div className="flex justify-center">
-              <div className="relative w-32 h-32">
-                <input
-                  id="tokenImage"
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  ref={fileInputRef}
-                  onChange={handleImageUpload}
-                />
-                <label htmlFor="tokenImage" className="flex items-center justify-center w-full h-full rounded-full border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer overflow-hidden">
-                  {imagePreview ? (
-                    <img src={imagePreview} alt="Token" className="w-full h-full object-cover" />
-                  ) : (
-                    <Upload className="w-8 h-8" />
-                  )}
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+  return (
+    <div className="w-[50rem] mx-auto space-y-6 font-lexend text-gray-800 p-8 rounded-lg">
+      <div>
+        <h1 className="text-4xl font-bold text-center mb-2">Launch Token</h1>
+        <p className="text-xl text-gray-600 text-center">Create your token with a dedicated wallet.</p>
+      </div>
+      <div>
+        <form className="space-y-6">
+          <div className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="tokenName" className="block text-sm font-medium">Token Name</label>
+              <label htmlFor="imageUrl" className="block text-sm font-medium">Token Image URL</label>
               <input
-                id="tokenName"
-                type="text"
-                placeholder="Enter token name"
+                id="imageUrl"
+                type="url"
+                placeholder="Enter image URL"
                 className="w-full px-3 py-2 bg-white/90 rounded-[10px] border border-gray-400 h-14 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600"
-                value={tokenName}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setTokenName(e.target.value)}
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
               />
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="tokenSymbol" className="block text-sm font-medium">Token Symbol</label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="tokenName" className="block text-sm font-medium">Token Name</label>
                 <input
-                  id="tokenSymbol"
+                  id="tokenName"
                   type="text"
-                  placeholder="Enter token symbol"
-                  className="w-full pl-10 pr-3 py-2 bg-white/90 rounded-[10px] border border-gray-400 h-14 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600"
-                  value={tokenSymbol}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setTokenSymbol(e.target.value)}
+                  placeholder="Enter token name"
+                  className="w-full px-3 py-2 bg-white/90 rounded-[10px] border border-gray-400 h-14 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600"
+                  value={tokenName}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setTokenName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="tokenSymbol" className="block text-sm font-medium">Token Symbol</label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    id="tokenSymbol"
+                    type="text"
+                    placeholder="Enter token symbol"
+                    className="w-full pl-10 pr-3 py-2 bg-white/90 rounded-[10px] border border-gray-400 h-14 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600"
+                    value={tokenSymbol}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setTokenSymbol(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="tokenDesc" className="block text-sm font-medium">Token Description</label>
+              <textarea
+                id="tokenDesc"
+                placeholder="Enter token description"
+                className="w-full px-3 py-2 border rounded-md min-h-[100px] bg-white/90 border-gray-400 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600"
+                value={tokenDesc}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTokenDesc(e.target.value)}
+              />
+            </div>
+
+            <div className="text-3xl">Socials</div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="text-[13px] font-lexend font-medium mb-2 block">Twitter Link</label>
+                <input
+                  type="url"
+                  placeholder="https://x.com/.."
+                  value={twitterLink}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setTwitterLink(e.target.value)}
+                  className="w-full bg-white/90 border border-gray-400 rounded-[10px] px-4 h-14 text-gray-800 placeholder-gray-500 font-medium font-roboto focus:outline-none focus:ring-2 focus:ring-gray-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[13px] font-lexend font-medium mb-2 block">Website Link</label>
+                <input
+                  type="url"
+                  placeholder="https://yourwebsite.com"
+                  value={websiteLink}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setWebsiteLink(e.target.value)}
+                  className="w-full bg-white/90 border border-gray-400 rounded-[10px] px-4 h-14 text-gray-800 placeholder-gray-500 font-medium font-roboto focus:outline-none focus:ring-2 focus:ring-gray-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[13px] font-lexend font-medium mb-2 block">Telegram Link</label>
+                <input
+                  type="url"
+                  placeholder="https://t.me/.."
+                  value={telegramLink}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setTelegramLink(e.target.value)}
+                  className="w-full bg-white/90 border border-gray-400 rounded-[10px] px-4 h-14 text-gray-800 placeholder-gray-500 font-medium font-roboto focus:outline-none focus:ring-2 focus:ring-gray-600"
                 />
               </div>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label htmlFor="tokenDesc" className="block text-sm font-medium">Token Description</label>
-            <textarea
-              id="tokenDesc"
-              placeholder="Enter token description"
-              className="w-full px-3 py-2 border rounded-md min-h-[100px] bg-white/90 border-gray-400 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-600"
-              value={tokenDesc}
-              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTokenDesc(e.target.value)}
-            />
+          <div className="flex gap-4">
+            <button
+              type="submit"
+              disabled={isLoading}
+              onClick={handleSubmitSOL}
+              className="w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600 hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              {isLoading ? "Processing..." : "Launch Token"}
+            </button>
           </div>
+        </form>
 
-          <div className="text-3xl">Socials</div>
-
-          <div className="mt-4 space-y-4">
-            <div>
-              <label className="text-[13px] font-lexend font-medium mb-2 block">Twitter Link</label>
-              <input
-                type="url"
-                placeholder="https://x.com/.."
-                value={twitterLink}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setTwitterLink(e.target.value)}
-                className="w-full bg-white/90 border border-gray-400 rounded-[10px] px-4 h-14 text-gray-800 placeholder-gray-500 font-medium font-roboto focus:outline-none focus:ring-2 focus:ring-gray-600"
-              />
-            </div>
-
-            <div>
-              <label className="text-[13px] font-lexend font-medium mb-2 block">Website Link</label>
-              <input
-                type="url"
-                placeholder="https://yourwebsite.com"
-                value={websiteLink}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setWebsiteLink(e.target.value)}
-                className="w-full bg-white/90 border border-gray-400 rounded-[10px] px-4 h-14 text-gray-800 placeholder-gray-500 font-medium font-roboto focus:outline-none focus:ring-2 focus:ring-gray-600"
-              />
-            </div>
-
-            <div>
-              <label className="text-[13px] font-lexend font-medium mb-2 block">Telegram Link</label>
-              <input
-                type="url"
-                placeholder="https://t.me/.."
-                value={telegramLink}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setTelegramLink(e.target.value)}
-                className="w-full bg-white/90 border border-gray-400 rounded-[10px] px-4 h-14 text-gray-800 placeholder-gray-500 font-medium font-roboto focus:outline-none focus:ring-2 focus:ring-gray-600"
-              />
-            </div>
+        {error && (
+          <div className="mt-4 p-4 bg-red-100 border border-red-400 rounded-md text-red-700">
+            {error}
           </div>
-        </div>
+        )}
 
-        <div className="flex gap-4">
-          <button
-            type="submit"
-            disabled={isLoading}
-            onClick={handleSubmitSOL}
-            className="w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-600 hover:bg-gray-700 transition-colors disabled:opacity-50"
-          >
-            {isLoading ? "Processing..." : "Launch Token"}
-          </button>
-        </div>
-      </form>
-
-      {error && (
-        <div className="mt-4 p-4 bg-red-100 border border-red-400 rounded-md text-red-700">
-          {error}
-        </div>
-      )}
-
-      {wallet && (
-        <div className="mt-8 space-y-4">
-          <h2 className="text-xl font-bold">Generated Wallet</h2>
-          <div className="p-4 bg-white/90 rounded-lg border border-gray-400 shadow-sm">
-            <p className="font-semibold">{wallet.name}</p>
-            <p className="font-mono text-sm break-all mt-1">Public Key: {wallet.publicKey}</p>
-            <p className="text-sm mt-1">Balance: {wallet.balance} SOL</p>
-            {wallet.tokenUrl && (
-              <a
-                href={wallet.tokenUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:underline text-sm block mt-1"
-              >
-                View Token
-              </a>
-            )}
-            <div className="mt-2 text-sm">
-              <details>
-                <summary className="cursor-pointer text-blue-500">Show Keys</summary>
-                <div className="mt-2 space-y-2">
-                  <p className="font-mono break-all">
-                    <span className="font-semibold">Keypair:</span> {JSON.stringify(wallet.keypair)}
-                  </p>
-                  <p className="font-mono break-all">
-                    <span className="font-semibold">Mint:</span> {JSON.stringify(wallet.mint)}
-                  </p>
-                </div>
-              </details>
+        {wallet && (
+          <div className="mt-8 space-y-4">
+            <h2 className="text-xl font-bold">Generated Wallet</h2>
+            <div className="p-4 bg-white/90 rounded-lg border border-gray-400 shadow-sm">
+              <p className="font-semibold">{wallet.name}</p>
+              <p className="font-mono text-sm break-all mt-1">Public Key: {wallet.publicKey}</p>
+              <p className="text-sm mt-1">Balance: {wallet.balance} SOL</p>
+              {wallet.tokenUrl && (
+                <a
+                  href={wallet.tokenUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 hover:underline text-sm block mt-1"
+                >
+                  View Token
+                </a>
+              )}
+              <div className="mt-2 text-sm">
+                <details>
+                  <summary className="cursor-pointer text-blue-500">Show Keys</summary>
+                  <div className="mt-2 space-y-2">
+                    <p className="font-mono break-all">
+                      <span className="font-semibold">Keypair:</span> {JSON.stringify(wallet.keypair)}
+                    </p>
+                    <p className="font-mono break-all">
+                      <span className="font-semibold">Mint:</span> {JSON.stringify(wallet.mint)}
+                    </p>
+                  </div>
+                </details>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+      <div className="h-20" />
     </div>
-    <div className="h-20" />
-  </div>
-);
+  );
 };
 
 export default WalletGenerator;

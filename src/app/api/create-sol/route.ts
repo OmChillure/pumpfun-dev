@@ -10,7 +10,6 @@ import {
 } from "@solana/web3.js";
 import { PumpFunSDK } from "pumpdotfun-sdk";
 import { AnchorProvider } from "@coral-xyz/anchor";
-import { getFile, upload } from "@/app/actions";
 import { printSPLBalance } from "@/utils/util";
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, createTransferInstruction } from "@solana/spl-token";
 import clientPromise from '@/utils/db';
@@ -113,9 +112,6 @@ export async function POST(req: NextRequest) {
     const data = await req.formData();
     console.log("Form data received");
 
-    const uploadResult = await upload(data);
-    console.log("File uploaded to IPFS:", uploadResult.hash);
-
     const walletDataRaw = data.get("walletData");
     if (!walletDataRaw) throw new Error("No wallet data provided");
 
@@ -196,26 +192,22 @@ export async function POST(req: NextRequest) {
     const sdk = new PumpFunSDK(provider);
     console.log("SDK initialized");
 
-    const ipfsData = await getFile(
-      uploadResult.hash,
-      "application/octet-stream"
-    );
-    const fileBlob = new Blob([JSON.stringify(ipfsData)], {
-      type: "application/octet-stream",
-    });
+    const imageUrl = data.get("imageUrl") as string;
+    console.log("Fetching image from URL:", imageUrl);
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+    }
+    const imageBlob = await imageResponse.blob();
 
     const tokenMetadata = {
       name: data.get("tokenName") as string,
       symbol: data.get("tokenSymbol") as string,
       description: data.get("tokenDescription") as string,
-      file: await fileBlob,
-      properties: {
-        links: {
-          twitter: data.get("twitterLink") || undefined,
-          website: data.get("websiteLink") || undefined,
-          telegram: data.get("telegramLink") || undefined,
-        },
-      },
+      file: imageBlob,
+      twitter: data.get("twitterLink")?.toString(),
+      website: data.get("websiteLink")?.toString(),
+      telegram: data.get("telegramLink")?.toString(),
     };
   
     console.log("Token metadata prepared");
