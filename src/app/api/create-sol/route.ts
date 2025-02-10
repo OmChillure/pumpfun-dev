@@ -42,7 +42,7 @@ async function getBlockhashWithRetry(
 }
 
 //function to transfer token
-export async function transferTokensToConnectedWallet(
+async function transferTokensToConnectedWallet(
   connection: Connection,
   mint: PublicKey,
   fromWallet: Keypair,
