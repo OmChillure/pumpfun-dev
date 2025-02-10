@@ -8,7 +8,7 @@ import {
   IconBrandX,
   IconWorldWww,
 } from "@tabler/icons-react";
-import { WalletInfo } from "@/lib/types";
+import { WalletInfo } from "@/types/types";
 import { useWallet } from "@solana/wallet-adapter-react";
 import Link from "next/link";
 import Loader from "@/components/Loader";
