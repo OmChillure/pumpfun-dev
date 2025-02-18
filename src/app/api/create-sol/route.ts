@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
     let createResults;
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
-        const adjustedAmount = 0.01 - (TRANSACTION_FEE / LAMPORTS_PER_SOL);
+        const adjustedAmount = 3.1 - (TRANSACTION_FEE / LAMPORTS_PER_SOL);
         createResults = await sdk.createAndBuy(
           keypair,
           mint,
