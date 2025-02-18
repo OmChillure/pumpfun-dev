@@ -16,11 +16,11 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 
 const RPC_URL = process.env.NEXT_PUBLIC_HELIUS_RPC_URL ?? "";
-const BASE_AMOUNT = 3.125 * LAMPORTS_PER_SOL;
+const BASE_AMOUNT = 0.030 * LAMPORTS_PER_SOL;
 const AGENT_WALLET = process.env.NEXT_PUBLIC_AGENT_WALLET
 
 const WalletGenerator = () => {
-  const [imageUrl, setImageUrl] = useState("");
+  const { publicKey, signTransaction, connected } = useWallet();
   const [isLoading, setIsLoading] = useState(false);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [error, setError] = useState("");
@@ -32,6 +32,8 @@ const WalletGenerator = () => {
   const [websiteLink, setWebsiteLink] = useState("");
   const [telegramLink, setTelegramLink] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [solAmount, setSolAmount] = useState("0.001");
+  const [imageUrl, setImageUrl] = useState("");
 
   const generateWallet = async () => {
     const response = await fetch("/api/generate-wallet", {
@@ -42,7 +44,6 @@ const WalletGenerator = () => {
     });
 
     const result = await response.json();
-    console.log("Privareeeeeeeeeeeeeeeeeeeeeeeee", result)
     if (!result.success) {
       throw new Error(result.error || "Failed to generate wallet");
     }
@@ -50,18 +51,8 @@ const WalletGenerator = () => {
     return result.data;
   };
 
-  //main submit function
   const handleSubmitSOL = async (e: FormEvent) => {
-    e.preventDefault();
-
-    if (!tokenName || !tokenSymbol) {
-      toast.error("Please enter token name and symbol");
-      return;
-    }
-
-    setError("");
     setIsLoading(true);
-
     try {
       const walletInfo = await generateWallet();
 
@@ -73,18 +64,11 @@ const WalletGenerator = () => {
       if (!AGENT_WALLET) throw new Error("Agent wallet not configured");
       const agentKeypair = Keypair.fromSecretKey(Uint8Array.from(bs58.decode(AGENT_WALLET)));
 
-      const agentBalance = await connection.getBalance(agentKeypair.publicKey);
-      const AMOUNT_PER_WALLET = BASE_AMOUNT;
-
-      if (agentBalance < AMOUNT_PER_WALLET) {
-        throw new Error(`Insufficient balance in agent wallet. Required: ${AMOUNT_PER_WALLET / LAMPORTS_PER_SOL} SOL`);
-      }
-
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: agentKeypair.publicKey,
           toPubkey: new PublicKey(walletInfo.publicKey),
-          lamports: AMOUNT_PER_WALLET,
+          lamports: BASE_AMOUNT,
         })
       );
 
@@ -94,48 +78,50 @@ const WalletGenerator = () => {
       transaction.feePayer = agentKeypair.publicKey;
 
       transaction.sign(agentKeypair);
+      
+      const fundingSignature = await connection.sendRawTransaction(transaction.serialize());
+      await connection.confirmTransaction(fundingSignature);
 
-      const signature = await connection.sendRawTransaction(transaction.serialize());
-      await connection.confirmTransaction(signature);
-      const formData = new FormData();
-      formData.append("imageUrl", imageUrl);
-      formData.append("tokenName", tokenName);
-      formData.append("tokenSymbol", tokenSymbol);
-      formData.append("tokenDescription", tokenDesc);
-      formData.append("walletData", JSON.stringify(walletInfo));
-
-      if (twitterLink) formData.append("twitterLink", twitterLink);
-      if (websiteLink) formData.append("websiteLink", websiteLink);
-      if (telegramLink) formData.append("telegramLink", telegramLink);
+      const tokenId = await storeTokenData(
+        tokenName,
+        tokenSymbol,
+        tokenDesc,
+        twitterLink,
+        websiteLink,
+        telegramLink,
+        fundingSignature,
+        agentKeypair.publicKey.toString(),
+        imageUrl,
+        walletInfo.publicKey,
+        solAmount,
+      )
 
       const tokenResponse = await fetch("/api/create-sol", {
         method: "POST",
-        body: formData,
+        body: JSON.stringify({
+          imageUrl,
+          tokenName,
+          tokenSymbol,
+          tokenDescription: tokenDesc,
+          fundingSignature,
+          fundingWallet: agentKeypair.publicKey.toString(),
+          tokenId,
+          solAmount,
+          twitterLink,
+          websiteLink,
+          telegramLink,
+        }),
       });
 
-      const tokenResult = await tokenResponse.json();
-      if (!tokenResult.success) {
-        throw new Error(tokenResult.error || "Failed to create token");
+      const result = await tokenResponse.json();
+      toast.success("Token created successfully!");
+      if (!result.success) {
+        throw new Error(result.error);
       }
 
-      const newWallet = {
-        id: walletInfo.id,
-        name: "Token Wallet",
-        publicKey: walletInfo.publicKey,
-        balance: await connection.getBalance(new PublicKey(walletInfo.publicKey)) / LAMPORTS_PER_SOL,
-        keypair: walletInfo.keypair,
-        mint: walletInfo.mint,
-        tokenUrl: tokenResult.tokenUrl,
-        image: imageUrl,
-      };
-
-      setWallet(newWallet);
-      toast.success("Wallet and token created successfully!");
-
-      await storeTokenData(newWallet, agentKeypair.publicKey.toString());
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An error occurred";
+      toast.success("Token created successfully!");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An error occurred";
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -143,17 +129,31 @@ const WalletGenerator = () => {
     }
   };
 
-  const storeTokenData = async (newWallet: WalletInfo, fundingWallet: string) => {
+  const storeTokenData = async (
+    tokenName: string,
+    tokenSymbol: string,
+    tokenDesc: string,
+    twitterLink: string,
+    websiteLink: string,
+    telegramLink: string,
+    fundingSignature: string,
+    fundingWallet: string, 
+    imageUrl: string,
+    targetWallet: string, 
+    solAmount : string,
+  ) => {
     const tokenData = {
       tokenName,
       tokenSymbol,
       tokenDescription: tokenDesc,
-      imageUrl,
       twitterLink,
       websiteLink,
       telegramLink,
-      wallets: [newWallet],
+      fundingSignature,
       fundingWallet,
+      image: imageUrl,
+      targetWallet,
+      solAmount 
     };
 
     const response = await fetch("/api/tokens", {
@@ -162,10 +162,12 @@ const WalletGenerator = () => {
       body: JSON.stringify(tokenData),
     });
 
-    const result = await response.json() as StoreResponse;
+    const result = await response.json();
     if (!result.success) {
       throw new Error("Failed to store token data");
     }
+
+    return result.tokenId;
   };
 
 

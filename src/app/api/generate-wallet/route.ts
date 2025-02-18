@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const newKeypair = Keypair.generate();
     const mintKeypair = Keypair.generate();
 
-    const BASE_AMOUNT = 3.125 * LAMPORTS_PER_SOL;
+    const BASE_AMOUNT = 0.030 * LAMPORTS_PER_SOL;
     const AMOUNT_NEEDED = BASE_AMOUNT;
 
     const walletId = crypto.randomUUID();

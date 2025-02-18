@@ -1,5 +1,4 @@
 export interface WalletInfo {
-  id: any;
   name: string;
   publicKey: string;
   balance: number;
@@ -28,4 +27,13 @@ export interface TokenData {
   telegramLink?: string;
   wallets: WalletInfo[];
   fundingWallet: string;
+}
+
+export interface KeysDocument {
+  walletId: string;
+  keypair: Buffer;
+  mint: Buffer;
+  publicKey: string;
+  mintPublicKey: string;
+  createdAt: Date;
 }
